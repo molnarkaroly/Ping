@@ -1,20 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:ping/core/theme/app_theme.dart';
 import 'package:ping/core/widgets/neumorphic_container.dart';
+import 'package:ping/features/user/domain/user_service.dart';
 import 'dart:async';
 
-/// Safety Screen - Check-in timer (Dark Mode).
-class SafetyScreen extends StatefulWidget {
+/// Safety Screen - Check-in timer with API integration (Dark Mode).
+class SafetyScreen extends ConsumerStatefulWidget {
   const SafetyScreen({super.key});
 
   @override
-  State<SafetyScreen> createState() => _SafetyScreenState();
+  ConsumerState<SafetyScreen> createState() => _SafetyScreenState();
 }
 
-class _SafetyScreenState extends State<SafetyScreen>
+class _SafetyScreenState extends ConsumerState<SafetyScreen>
     with SingleTickerProviderStateMixin {
   bool _isActive = false;
+  bool _isLoading = false;
   Duration _selectedDuration = const Duration(hours: 1);
   Duration _remaining = Duration.zero;
   Timer? _timer;
@@ -44,25 +48,52 @@ class _SafetyScreenState extends State<SafetyScreen>
     super.dispose();
   }
 
-  void _start() {
-    setState(() {
-      _isActive = true;
-      _remaining = _selectedDuration;
-    });
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_remaining.inSeconds > 0) {
-        setState(
-          () => _remaining = Duration(seconds: _remaining.inSeconds - 1),
-        );
-      } else {
-        _emergency();
-      }
-    });
+  Future<void> _start() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final userService = ref.read(userServiceProvider);
+      await userService.startCheckIn(duration: _selectedDuration);
+
+      HapticFeedback.mediumImpact();
+      setState(() {
+        _isActive = true;
+        _remaining = _selectedDuration;
+        _isLoading = false;
+      });
+
+      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (_remaining.inSeconds > 0) {
+          setState(
+            () => _remaining = Duration(seconds: _remaining.inSeconds - 1),
+          );
+        } else {
+          _emergency();
+        }
+      });
+
+      _showFeedback('Check-in elindítva! ✓');
+    } catch (e) {
+      setState(() => _isLoading = false);
+      _showFeedback('Hiba: $e', isError: true);
+    }
   }
 
-  void _refresh() {
-    setState(() => _remaining = _selectedDuration);
-    _showFeedback('Timer refreshed! ✓');
+  Future<void> _markSafe() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final userService = ref.read(userServiceProvider);
+      await userService.markSafe();
+
+      HapticFeedback.mediumImpact();
+      setState(() => _remaining = _selectedDuration);
+      _showFeedback('Biztonságban! Időzítő frissítve ✓');
+    } catch (e) {
+      _showFeedback('Hiba: $e', isError: true);
+    }
+
+    setState(() => _isLoading = false);
   }
 
   void _cancel() {
@@ -71,12 +102,15 @@ class _SafetyScreenState extends State<SafetyScreen>
       _isActive = false;
       _remaining = Duration.zero;
     });
-    _showFeedback('Check-in cancelled');
+    _showFeedback('Check-in megszakítva');
   }
 
   void _emergency() {
     _timer?.cancel();
     setState(() => _isActive = false);
+
+    HapticFeedback.heavyImpact();
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -87,35 +121,33 @@ class _SafetyScreenState extends State<SafetyScreen>
           children: [
             Icon(Icons.warning_rounded, color: AppColors.emergency),
             const Gap(12),
-            const Text('Time\'s Up!'),
+            const Text('Lejárt az idő!'),
           ],
         ),
-        content: const Text(
-          'Emergency alerts are being sent to your VIP contacts.',
-        ),
+        content: const Text('Vészjelzés küldése a VIP kontaktjaidnak...'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('I\'m OK'),
+            child: const Text('Rendben vagyok'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.emergency,
             ),
-            child: const Text('Confirm'),
+            child: const Text('Megerősítés'),
           ),
         ],
       ),
     );
   }
 
-  void _showFeedback(String msg) {
+  void _showFeedback(String msg, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
         behavior: SnackBarBehavior.floating,
-        backgroundColor: AppColors.cardColor,
+        backgroundColor: isError ? AppColors.emergency : AppColors.cardColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
       ),
@@ -126,13 +158,14 @@ class _SafetyScreenState extends State<SafetyScreen>
     final h = d.inHours;
     final m = d.inMinutes.remainder(60);
     final s = d.inSeconds.remainder(60);
-    if (h > 0)
+    if (h > 0) {
       return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    }
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
   String _label(Duration d) =>
-      d.inHours > 0 ? '${d.inHours}h' : '${d.inMinutes}min';
+      d.inHours > 0 ? '${d.inHours} óra' : '${d.inMinutes} perc';
 
   @override
   Widget build(BuildContext context) {
@@ -148,14 +181,14 @@ class _SafetyScreenState extends State<SafetyScreen>
                 Icon(Icons.shield_rounded, color: AppColors.accent, size: 28),
                 const Gap(12),
                 const Text(
-                  'Safety Check-in',
+                  'Biztonsági Check-in',
                   style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
             const Gap(12),
             Text(
-              'Set a timer. If you don\'t check back, your VIP contacts will be notified.',
+              'Állíts be egy időzítőt. Ha nem jelzel vissza, a VIP kontaktjaid értesítést kapnak.',
               style: TextStyle(color: AppColors.textSecondary),
             ),
             const Gap(32),
@@ -189,7 +222,11 @@ class _SafetyScreenState extends State<SafetyScreen>
                               : NeumorphicStyles.cardShadows,
                         ),
                         child: Center(
-                          child: _isActive
+                          child: _isLoading
+                              ? CircularProgressIndicator(
+                                  color: AppColors.accent,
+                                )
+                              : _isActive
                               ? Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
@@ -219,7 +256,7 @@ class _SafetyScreenState extends State<SafetyScreen>
                                     ),
                                     const Gap(12),
                                     Text(
-                                      'Ready',
+                                      'Kész',
                                       style: TextStyle(
                                         fontSize: 22,
                                         color: AppColors.textSecondary,
@@ -234,8 +271,8 @@ class _SafetyScreenState extends State<SafetyScreen>
                   const Gap(28),
                   // Duration Selector
                   if (!_isActive) ...[
-                    Text(
-                      'Select Duration',
+                    const Text(
+                      'Válassz időtartamot',
                       style: TextStyle(fontWeight: FontWeight.w600),
                     ),
                     const Gap(16),
@@ -277,7 +314,7 @@ class _SafetyScreenState extends State<SafetyScreen>
                   // Buttons
                   if (_isActive) ...[
                     GestureDetector(
-                      onTap: _refresh,
+                      onTap: _isLoading ? null : _markSafe,
                       child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(vertical: 16),
@@ -288,10 +325,10 @@ class _SafetyScreenState extends State<SafetyScreen>
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: const [
-                            Icon(Icons.refresh, color: Colors.white),
+                            Icon(Icons.check_circle, color: Colors.white),
                             Gap(10),
                             Text(
-                              'I\'m Safe - Refresh',
+                              'Biztonságban vagyok',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
@@ -317,7 +354,7 @@ class _SafetyScreenState extends State<SafetyScreen>
                         ),
                         child: Center(
                           child: Text(
-                            'Cancel',
+                            'Mégsem',
                             style: TextStyle(
                               color: AppColors.emergency,
                               fontWeight: FontWeight.w600,
@@ -328,7 +365,7 @@ class _SafetyScreenState extends State<SafetyScreen>
                     ),
                   ] else ...[
                     GestureDetector(
-                      onTap: _start,
+                      onTap: _isLoading ? null : _start,
                       child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(vertical: 16),
@@ -346,7 +383,7 @@ class _SafetyScreenState extends State<SafetyScreen>
                             ),
                             Gap(8),
                             Text(
-                              'Start Check-in',
+                              'Check-in indítása',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
@@ -375,7 +412,7 @@ class _SafetyScreenState extends State<SafetyScreen>
                   const Gap(12),
                   Expanded(
                     child: Text(
-                      'If the timer runs out, your VIP contacts will receive an emergency alert.',
+                      'Ha lejár az idő, a VIP kontaktjaid vészjelzést kapnak.',
                       style: TextStyle(
                         color: AppColors.textSecondary,
                         fontSize: 13,

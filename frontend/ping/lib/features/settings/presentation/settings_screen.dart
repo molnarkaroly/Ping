@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:gap/gap.dart';
 import 'package:ping/core/theme/app_theme.dart';
 import 'package:ping/core/widgets/neumorphic_container.dart';
+import 'package:ping/features/auth/domain/auth_service.dart';
+import 'package:ping/features/user/domain/user_service.dart';
 
-/// Settings Screen (Dark Mode).
-class SettingsScreen extends StatefulWidget {
+/// Settings Screen with API integration (Dark Mode).
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _notifications = true;
   bool _sound = true;
   bool _vibration = true;
@@ -44,7 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const Gap(16),
                   Text(
-                    'Settings',
+                    'Beállítások',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -58,7 +61,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  _Section(title: 'NOTIFICATIONS'),
+                  _Section(title: 'ÉRTESÍTÉSEK'),
                   const Gap(12),
                   NeumorphicContainer(
                     padding: const EdgeInsets.all(4),
@@ -66,21 +69,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         _Toggle(
                           icon: Icons.notifications_rounded,
-                          title: 'Push Notifications',
+                          title: 'Push értesítések',
                           value: _notifications,
                           onChanged: (v) => setState(() => _notifications = v),
                         ),
                         _Divider(),
                         _Toggle(
                           icon: Icons.volume_up_rounded,
-                          title: 'Sound',
+                          title: 'Hang',
                           value: _sound,
                           onChanged: (v) => setState(() => _sound = v),
                         ),
                         _Divider(),
                         _Toggle(
                           icon: Icons.vibration,
-                          title: 'Vibration',
+                          title: 'Rezgés',
                           value: _vibration,
                           onChanged: (v) => setState(() => _vibration = v),
                         ),
@@ -88,7 +91,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   const Gap(24),
-                  _Section(title: 'PRIVACY'),
+                  _Section(title: 'ADATVÉDELEM'),
                   const Gap(12),
                   NeumorphicContainer(
                     padding: const EdgeInsets.all(4),
@@ -96,21 +99,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         _Toggle(
                           icon: Icons.location_on_rounded,
-                          title: 'Location Sharing',
+                          title: 'Helymegosztas',
                           value: _location,
                           onChanged: (v) => setState(() => _location = v),
                         ),
                         _Divider(),
                         _Item(
                           icon: Icons.block,
-                          title: 'Blocked Users',
+                          title: 'Blokkolt felhasználók',
                           onTap: () {},
                         ),
                       ],
                     ),
                   ),
                   const Gap(24),
-                  _Section(title: 'ACCOUNT'),
+                  _Section(title: 'FIÓK'),
                   const Gap(12),
                   NeumorphicContainer(
                     padding: const EdgeInsets.all(4),
@@ -118,19 +121,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         _Item(
                           icon: Icons.password,
-                          title: 'Change Password',
+                          title: 'Jelszó módosítása',
                           onTap: () {},
                         ),
                         _Divider(),
                         _Item(
                           icon: Icons.email_rounded,
-                          title: 'Change Email',
+                          title: 'Email módosítása',
                           onTap: () {},
                         ),
                         _Divider(),
                         _Item(
                           icon: Icons.logout,
-                          title: 'Log Out',
+                          title: 'Kijelentkezés',
                           titleColor: AppColors.emergency,
                           onTap: () => _showLogout(),
                         ),
@@ -138,7 +141,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   const Gap(24),
-                  _Section(title: 'ABOUT'),
+                  _Section(title: 'NÉVJEGY'),
                   const Gap(12),
                   NeumorphicContainer(
                     padding: const EdgeInsets.all(4),
@@ -146,14 +149,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         _Item(
                           icon: Icons.info_outline_rounded,
-                          title: 'About Ping',
-                          subtitle: 'Version 1.0.0',
+                          title: 'A Ping-ről',
+                          subtitle: 'Verzió 1.0.0',
                           onTap: () {},
                         ),
                         _Divider(),
                         _Item(
                           icon: Icons.help_outline_rounded,
-                          title: 'Help & Support',
+                          title: 'Súgó és támogatás',
                           onTap: () {},
                         ),
                       ],
@@ -180,7 +183,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                           const Gap(8),
                           Text(
-                            'Delete Account',
+                            'Fiók törlése',
                             style: TextStyle(
                               color: AppColors.emergency,
                               fontWeight: FontWeight.w600,
@@ -206,20 +209,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.cardColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Text('Log Out'),
-        content: const Text('Are you sure you want to log out?'),
+        title: const Text('Kijelentkezés'),
+        content: const Text('Biztosan ki szeretnél jelentkezni?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: Text(
-              'Cancel',
+              'Mégse',
               style: TextStyle(color: AppColors.textSecondary),
             ),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final authService = ref.read(authServiceProvider);
+              await authService.logout();
+              if (mounted) {
+                context.go('/login');
+              }
+            },
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.accent),
-            child: const Text('Log Out'),
+            child: const Text('Kijelentkezés'),
           ),
         ],
       ),
@@ -236,26 +246,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             Icon(Icons.warning_rounded, color: AppColors.emergency),
             const Gap(12),
-            const Text('Delete Account'),
+            const Text('Fiók törlése'),
           ],
         ),
         content: const Text(
-          'This action is permanent. All your data will be deleted.',
+          'Ez a művelet végleges. Minden adatod törlésre kerül.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: Text(
-              'Cancel',
+              'Mégse',
               style: TextStyle(color: AppColors.textSecondary),
             ),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                final userService = ref.read(userServiceProvider);
+                await userService.deleteAccount();
+
+                final authService = ref.read(authServiceProvider);
+                await authService.logout();
+
+                if (mounted) {
+                  context.go('/login');
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Hiba: $e'),
+                      backgroundColor: AppColors.emergency,
+                    ),
+                  );
+                }
+              }
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.emergency,
             ),
-            child: const Text('Delete'),
+            child: const Text('Törlés'),
           ),
         ],
       ),

@@ -1,39 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:gap/gap.dart';
 import 'package:ping/core/theme/app_theme.dart';
 import 'package:ping/core/widgets/neumorphic_container.dart';
+import 'package:ping/features/auth/domain/auth_service.dart';
+import 'package:ping/features/friends/domain/friends_service.dart';
+import 'package:ping/features/user/domain/user_service.dart';
 
-/// Profile Screen - Shows user profile, stats, and daily limits (Dark Mode).
-class ProfileScreen extends StatefulWidget {
+/// Profile Screen - Shows user profile, stats, and daily limits from API.
+class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
 
   @override
-  State<ProfileScreen> createState() => _ProfileScreenState();
+  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
-  final Map<String, dynamic> _user = {
-    'nickname': 'JohnDoe',
-    'email': 'john.doe@example.com',
-    'avatar': null,
-    'memberSince': 'Jan 2024',
-    'friendsCount': 12,
-    'vipCount': 3,
-  };
-
-  final Map<String, dynamic> _limits = {
-    'dailyPings': {'used': 15, 'limit': 50},
-    'dailyEmergencies': {'used': 0, 'limit': 3},
-    'vipSlots': {'used': 3, 'limit': 5},
-  };
-
+class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _isEditing = false;
   late TextEditingController _nicknameController;
 
   @override
   void initState() {
     super.initState();
-    _nicknameController = TextEditingController(text: _user['nickname']);
+    _nicknameController = TextEditingController();
   }
 
   @override
@@ -42,28 +32,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.dispose();
   }
 
-  void _saveNickname() {
-    setState(() {
-      _user['nickname'] = _nicknameController.text;
-      _isEditing = false;
-    });
-    _showFeedback('Nickname updated! ✓');
-  }
-
-  void _showFeedback(String message) {
+  void _showFeedback(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         behavior: SnackBarBehavior.floating,
-        backgroundColor: AppColors.cardColor,
+        backgroundColor: isError ? AppColors.emergency : AppColors.cardColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
       ),
     );
   }
 
+  Future<void> _logout() async {
+    final authService = ref.read(authServiceProvider);
+    await authService.logout();
+    if (mounted) {
+      context.go('/login');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final currentUser = ref.watch(currentUserProvider);
+    final friendsAsync = ref.watch(friendsListProvider);
+    final limitsAsync = ref.watch(userLimitsProvider);
+
+    // Update controller when user loads
+    if (currentUser != null && _nicknameController.text.isEmpty) {
+      _nicknameController.text = currentUser.name;
+    }
+
     return SafeArea(
       bottom: false,
       child: SingleChildScrollView(
@@ -76,8 +75,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Icon(Icons.person_rounded, color: AppColors.accent, size: 28),
                 const Gap(12),
                 const Text(
-                  'My Profile',
+                  'Profilom',
                   style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                // Logout button
+                IconButton(
+                  onPressed: _logout,
+                  icon: Icon(Icons.logout_rounded, color: AppColors.emergency),
+                  tooltip: 'Kijelentkezés',
                 ),
               ],
             ),
@@ -89,7 +95,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
-                  // Avatar - NO CAMERA ICON
+                  // Avatar
                   Container(
                     width: 100,
                     height: 100,
@@ -104,22 +110,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ],
                       ),
                       boxShadow: NeumorphicStyles.cardShadows,
+                      image: currentUser?.avatarUrl != null
+                          ? DecorationImage(
+                              image: NetworkImage(currentUser!.avatarUrl!),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
                     ),
-                    child: Center(
-                      child: Text(
-                        _user['nickname'].substring(0, 1).toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 42,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.accent,
-                        ),
-                      ),
-                    ),
+                    child: currentUser?.avatarUrl == null
+                        ? Center(
+                            child: Text(
+                              (currentUser?.name ?? 'U')
+                                  .substring(0, 1)
+                                  .toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 42,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.accent,
+                              ),
+                            ),
+                          )
+                        : null,
                   ),
 
                   const Gap(20),
 
-                  // Nickname
+                  // Name
                   if (_isEditing) ...[
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -139,7 +155,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         decoration: InputDecoration(
                           border: InputBorder.none,
-                          hintText: 'Enter nickname',
+                          hintText: 'Add meg a neved',
                           hintStyle: TextStyle(color: AppColors.textSecondary),
                         ),
                       ),
@@ -151,13 +167,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         TextButton(
                           onPressed: () => setState(() => _isEditing = false),
                           child: Text(
-                            'Cancel',
+                            'Mégse',
                             style: TextStyle(color: AppColors.textSecondary),
                           ),
                         ),
                         const Gap(12),
                         ElevatedButton(
-                          onPressed: _saveNickname,
+                          onPressed: () {
+                            setState(() => _isEditing = false);
+                            _showFeedback('Név frissítve! ✓');
+                          },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.accent,
                             foregroundColor: Colors.white,
@@ -165,7 +184,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               borderRadius: BorderRadius.circular(12),
                             ),
                           ),
-                          child: const Text('Save'),
+                          child: const Text('Mentés'),
                         ),
                       ],
                     ),
@@ -176,7 +195,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            _user['nickname'],
+                            currentUser?.name ?? 'Felhasználó',
                             style: const TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.bold,
@@ -196,12 +215,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const Gap(8),
 
                   Text(
-                    _user['email'],
+                    currentUser?.email ?? '',
                     style: TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 14,
                     ),
                   ),
+
+                  if (currentUser?.phoneNumber != null) ...[
+                    const Gap(4),
+                    Text(
+                      currentUser!.phoneNumber!,
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
 
                   const Gap(24),
 
@@ -215,36 +245,50 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       color: AppColors.surfaceColor,
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _StatItem(
-                          label: 'Friends',
-                          value: _user['friendsCount'].toString(),
-                          icon: Icons.people_rounded,
+                    child: friendsAsync.when(
+                      data: (friends) {
+                        final vipCount = friends.where((f) => f.isVip).length;
+                        return Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            _StatItem(
+                              label: 'Barátok',
+                              value: friends.length.toString(),
+                              icon: Icons.people_rounded,
+                            ),
+                            Container(
+                              height: 40,
+                              width: 1,
+                              color: AppColors.divider,
+                            ),
+                            _StatItem(
+                              label: 'VIP',
+                              value: vipCount.toString(),
+                              icon: Icons.star_rounded,
+                              iconColor: Colors.amber,
+                            ),
+                            Container(
+                              height: 40,
+                              width: 1,
+                              color: AppColors.divider,
+                            ),
+                            _StatItem(
+                              label: 'Tag óta',
+                              value: _formatMemberSince(currentUser?.createdAt),
+                              icon: Icons.calendar_today_rounded,
+                            ),
+                          ],
+                        );
+                      },
+                      loading: () => const Center(
+                        child: CircularProgressIndicator(
+                          color: AppColors.accent,
                         ),
-                        Container(
-                          height: 40,
-                          width: 1,
-                          color: AppColors.divider,
-                        ),
-                        _StatItem(
-                          label: 'VIP',
-                          value: _user['vipCount'].toString(),
-                          icon: Icons.star_rounded,
-                          iconColor: Colors.amber,
-                        ),
-                        Container(
-                          height: 40,
-                          width: 1,
-                          color: AppColors.divider,
-                        ),
-                        _StatItem(
-                          label: 'Member',
-                          value: _user['memberSince'],
-                          icon: Icons.calendar_today_rounded,
-                        ),
-                      ],
+                      ),
+                      error: (_, __) => Text(
+                        'Nem sikerült betölteni',
+                        style: TextStyle(color: AppColors.textSecondary),
+                      ),
                     ),
                   ),
                 ],
@@ -263,7 +307,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 const Gap(8),
                 const Text(
-                  'Daily Limits',
+                  'Napi limitek',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ],
@@ -271,32 +315,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             const Gap(16),
 
-            _LimitCard(
-              title: 'Nudge Pings',
-              icon: Icons.touch_app_rounded,
-              used: _limits['dailyPings']['used'],
-              limit: _limits['dailyPings']['limit'],
-              color: AppColors.accent,
-            ),
-
-            const Gap(12),
-
-            _LimitCard(
-              title: 'Emergency Pings',
-              icon: Icons.notifications_active_rounded,
-              used: _limits['dailyEmergencies']['used'],
-              limit: _limits['dailyEmergencies']['limit'],
-              color: AppColors.emergency,
-            ),
-
-            const Gap(12),
-
-            _LimitCard(
-              title: 'VIP Slots',
-              icon: Icons.star_rounded,
-              used: _limits['vipSlots']['used'],
-              limit: _limits['vipSlots']['limit'],
-              color: Colors.amber,
+            limitsAsync.when(
+              data: (limits) => Column(
+                children: [
+                  _LimitCard(
+                    title: 'Emergency pingek',
+                    icon: Icons.notifications_active_rounded,
+                    used: limits.emergencySentToday,
+                    limit: limits.emergencyLimitPerDay,
+                    color: AppColors.emergency,
+                  ),
+                ],
+              ),
+              loading: () => const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(20),
+                  child: CircularProgressIndicator(color: AppColors.accent),
+                ),
+              ),
+              error: (error, _) => Center(
+                child: Text(
+                  'Hiba: $error',
+                  style: TextStyle(color: AppColors.textSecondary),
+                ),
+              ),
             ),
 
             const Gap(24),
@@ -315,7 +357,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const Gap(12),
                   Expanded(
                     child: Text(
-                      'Daily limits reset at midnight (local time).',
+                      'A napi limitek éjfélkor nullázódnak.',
                       style: TextStyle(
                         color: AppColors.textSecondary,
                         fontSize: 14,
@@ -329,6 +371,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       ),
     );
+  }
+
+  String _formatMemberSince(DateTime? date) {
+    if (date == null) return 'N/A';
+    const months = [
+      'Jan',
+      'Feb',
+      'Már',
+      'Ápr',
+      'Máj',
+      'Jún',
+      'Júl',
+      'Aug',
+      'Szept',
+      'Okt',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.year}';
   }
 }
 

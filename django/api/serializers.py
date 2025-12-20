@@ -13,30 +13,82 @@ class UserProfileSerializer(serializers.ModelSerializer):
         model = UserProfile
         fields = ['status', 'fcm_token']
 
-class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True)
+class RegisterSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=150)
+    email = serializers.EmailField()
+    phone_number = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True, min_length=6)
 
-    class Meta:
-        model = User
-        fields = ['username', 'email', 'password']
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("This email is already registered.")
+        return value
 
     def create(self, validated_data):
         user = User.objects.create_user(
-            username=validated_data['username'],
+            username=validated_data['name'],  # Use name as username
             email=validated_data['email'],
             password=validated_data['password']
         )
+        # Store phone number in profile if needed
+        if hasattr(user, 'profile') and validated_data.get('phone_number'):
+            user.profile.phone_number = validated_data.get('phone_number')
+            user.profile.save()
         return user
+    
+    def to_representation(self, instance):
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(instance)
+        return {
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'user': {
+                'id': str(instance.id),
+                'name': instance.username,
+                'email': instance.email,
+            }
+        }
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    username_field = 'email'
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Remove username field and add email
+        self.fields.pop('username', None)
+        self.fields['email'] = serializers.EmailField()
+    
     def validate(self, attrs):
-        data = super().validate(attrs)
-        # Add extra responses to the login response
-        data.update({'username': self.user.username})
-        data.update({'email': self.user.email})
-        if hasattr(self.user, 'profile'):
-            data.update({'status': self.user.profile.status})
-            data.update({'fcm_token': self.user.profile.fcm_token})
+        # Get user by email
+        email = attrs.get('email')
+        password = attrs.get('password')
+        
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            raise serializers.ValidationError({'detail': 'Invalid email or password'})
+        
+        if not user.check_password(password):
+            raise serializers.ValidationError({'detail': 'Invalid email or password'})
+        
+        # Get tokens
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(user)
+        
+        data = {
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'user': {
+                'id': str(user.id),
+                'name': user.username,
+                'email': user.email,
+            }
+        }
+        
+        if hasattr(user, 'profile'):
+            data['user']['status'] = user.profile.status
+        
+        self.user = user
         return data
 
 class FriendRequestSerializer(serializers.Serializer):

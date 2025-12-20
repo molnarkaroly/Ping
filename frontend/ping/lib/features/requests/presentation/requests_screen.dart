@@ -1,44 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:ping/core/theme/app_theme.dart';
 import 'package:ping/core/widgets/neumorphic_container.dart';
+import 'package:ping/features/friends/domain/friend_model.dart';
+import 'package:ping/features/friends/domain/friends_service.dart';
 
-/// Requests Screen - Friend and VIP requests (Dark Mode).
-class RequestsScreen extends StatefulWidget {
+/// Requests Screen - Friend requests from API (Dark Mode).
+class RequestsScreen extends ConsumerStatefulWidget {
   const RequestsScreen({super.key});
 
   @override
-  State<RequestsScreen> createState() => _RequestsScreenState();
+  ConsumerState<RequestsScreen> createState() => _RequestsScreenState();
 }
 
-class _RequestsScreenState extends State<RequestsScreen>
+class _RequestsScreenState extends ConsumerState<RequestsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-
-  final List<Map<String, dynamic>> _friendRequests = [
-    {
-      'id': 1,
-      'name': 'Emma Wilson',
-      'message': 'Hey! Let\'s connect 👋',
-      'time': '2 hours ago',
-    },
-    {'id': 2, 'name': 'James Brown', 'message': null, 'time': '5 hours ago'},
-    {
-      'id': 3,
-      'name': 'Sophie Martinez',
-      'message': 'We met at the conference!',
-      'time': '1 day ago',
-    },
-  ];
-
-  final List<Map<String, dynamic>> _vipRequests = [
-    {
-      'id': 1,
-      'name': 'Anna Kiss',
-      'message': 'Please add me as VIP',
-      'time': '30 min ago',
-    },
-  ];
 
   @override
   void initState() {
@@ -52,36 +30,35 @@ class _RequestsScreenState extends State<RequestsScreen>
     super.dispose();
   }
 
-  void _acceptRequest(int id, bool isVip) {
-    setState(() {
-      if (isVip) {
-        _vipRequests.removeWhere((r) => r['id'] == id);
-      } else {
-        _friendRequests.removeWhere((r) => r['id'] == id);
-      }
-    });
-    _showFeedback(
-      isVip ? 'VIP request accepted! ⭐' : 'Friend request accepted! 🎉',
-    );
+  Future<void> _acceptRequest(String id) async {
+    try {
+      final friendsService = ref.read(friendsServiceProvider);
+      await friendsService.respondToRequest(id, accept: true);
+      ref.invalidate(friendRequestsProvider);
+      ref.invalidate(friendsListProvider);
+      _showFeedback('Barátkérelem elfogadva! 🎉');
+    } catch (e) {
+      _showFeedback('Hiba: $e', isError: true);
+    }
   }
 
-  void _declineRequest(int id, bool isVip) {
-    setState(() {
-      if (isVip) {
-        _vipRequests.removeWhere((r) => r['id'] == id);
-      } else {
-        _friendRequests.removeWhere((r) => r['id'] == id);
-      }
-    });
-    _showFeedback('Request declined');
+  Future<void> _declineRequest(String id) async {
+    try {
+      final friendsService = ref.read(friendsServiceProvider);
+      await friendsService.respondToRequest(id, accept: false);
+      ref.invalidate(friendRequestsProvider);
+      _showFeedback('Kérelem elutasítva');
+    } catch (e) {
+      _showFeedback('Hiba: $e', isError: true);
+    }
   }
 
-  void _showFeedback(String message) {
+  void _showFeedback(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         behavior: SnackBarBehavior.floating,
-        backgroundColor: AppColors.cardColor,
+        backgroundColor: isError ? AppColors.emergency : AppColors.cardColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
       ),
@@ -90,6 +67,8 @@ class _RequestsScreenState extends State<RequestsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final requestsAsync = ref.watch(friendRequestsProvider);
+
     return SafeArea(
       bottom: false,
       child: Column(
@@ -102,8 +81,17 @@ class _RequestsScreenState extends State<RequestsScreen>
                 Icon(Icons.mail_rounded, color: AppColors.accent, size: 28),
                 const Gap(12),
                 const Text(
-                  'Requests',
+                  'Kérelmek',
                   style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                // Refresh button
+                IconButton(
+                  onPressed: () => ref.invalidate(friendRequestsProvider),
+                  icon: Icon(
+                    Icons.refresh_rounded,
+                    color: AppColors.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -128,63 +116,9 @@ class _RequestsScreenState extends State<RequestsScreen>
                 unselectedLabelColor: AppColors.textSecondary,
                 labelStyle: const TextStyle(fontWeight: FontWeight.w600),
                 dividerColor: Colors.transparent,
-                tabs: [
-                  Tab(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text('Friends'),
-                        if (_friendRequests.isNotEmpty) ...[
-                          const Gap(8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.emergency,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              _friendRequests.length.toString(),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  Tab(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text('VIP'),
-                        if (_vipRequests.isNotEmpty) ...[
-                          const Gap(8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.amber,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              _vipRequests.length.toString(),
-                              style: const TextStyle(
-                                color: Colors.black87,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
+                tabs: const [
+                  Tab(text: 'Beérkezett'),
+                  Tab(text: 'Elküldött'),
                 ],
               ),
             ),
@@ -194,12 +128,58 @@ class _RequestsScreenState extends State<RequestsScreen>
 
           // Content
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildList(_friendRequests, false),
-                _buildList(_vipRequests, true),
-              ],
+            child: requestsAsync.when(
+              data: (requests) {
+                // Split into received and sent
+                // For now just show all - API should handle filtering
+                return TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildRequestList(
+                      requests
+                          .where((r) => r.status == FriendRequestStatus.pending)
+                          .toList(),
+                      isReceived: true,
+                    ),
+                    _buildRequestList(
+                      requests
+                          .where((r) => r.status == FriendRequestStatus.pending)
+                          .toList(),
+                      isReceived: false,
+                    ),
+                  ],
+                );
+              },
+              loading: () => const Center(
+                child: CircularProgressIndicator(color: AppColors.accent),
+              ),
+              error: (error, _) => Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: AppColors.textSecondary,
+                    ),
+                    const Gap(16),
+                    Text(
+                      'Hiba: $error',
+                      style: TextStyle(color: AppColors.textSecondary),
+                    ),
+                    const Gap(16),
+                    ElevatedButton.icon(
+                      onPressed: () => ref.invalidate(friendRequestsProvider),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Újra'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.accent,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
@@ -207,20 +187,25 @@ class _RequestsScreenState extends State<RequestsScreen>
     );
   }
 
-  Widget _buildList(List<Map<String, dynamic>> requests, bool isVip) {
+  Widget _buildRequestList(
+    List<FriendRequest> requests, {
+    required bool isReceived,
+  }) {
     if (requests.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              isVip ? Icons.star_outline_rounded : Icons.people_outline_rounded,
+              Icons.people_outline_rounded,
               size: 80,
               color: AppColors.textSecondary.withAlpha(80),
             ),
             const Gap(20),
             Text(
-              isVip ? 'No VIP requests' : 'No friend requests',
+              isReceived
+                  ? 'Nincs beérkezett kérelem'
+                  : 'Nincs elküldött kérelem',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
@@ -233,44 +218,56 @@ class _RequestsScreenState extends State<RequestsScreen>
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
-      itemCount: requests.length,
-      separatorBuilder: (_, __) => const Gap(14),
-      itemBuilder: (context, index) {
-        final req = requests[index];
-        return _RequestCard(
-          name: req['name'],
-          message: req['message'],
-          time: req['time'],
-          isVip: isVip,
-          onAccept: () => _acceptRequest(req['id'], isVip),
-          onDecline: () => _declineRequest(req['id'], isVip),
-        );
-      },
+    return RefreshIndicator(
+      onRefresh: () async => ref.invalidate(friendRequestsProvider),
+      color: AppColors.accent,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
+        itemCount: requests.length,
+        separatorBuilder: (_, __) => const Gap(14),
+        itemBuilder: (context, index) {
+          final req = requests[index];
+          return _RequestCard(
+            request: req,
+            isReceived: isReceived,
+            onAccept: () => _acceptRequest(req.id),
+            onDecline: () => _declineRequest(req.id),
+          );
+        },
+      ),
     );
   }
 }
 
 class _RequestCard extends StatelessWidget {
-  final String name;
-  final String? message;
-  final String time;
-  final bool isVip;
+  final FriendRequest request;
+  final bool isReceived;
   final VoidCallback onAccept;
   final VoidCallback onDecline;
 
   const _RequestCard({
-    required this.name,
-    this.message,
-    required this.time,
-    required this.isVip,
+    required this.request,
+    required this.isReceived,
     required this.onAccept,
     required this.onDecline,
   });
 
+  String _formatTime(DateTime dateTime) {
+    final diff = DateTime.now().difference(dateTime);
+    if (diff.inMinutes < 60) {
+      return '${diff.inMinutes} perce';
+    } else if (diff.inHours < 24) {
+      return '${diff.inHours} órája';
+    } else {
+      return '${diff.inDays} napja';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final name = isReceived ? request.fromUserName : request.toUserName;
+    final avatar = isReceived ? request.fromUserAvatar : request.toUserAvatar;
+
     return NeumorphicContainer(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -280,18 +277,17 @@ class _RequestCard extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 24,
-                backgroundColor: isVip
-                    ? Colors.amber.withAlpha(40)
-                    : AppColors.surfaceColor,
-                child: isVip
-                    ? const Icon(Icons.star_rounded, color: Colors.amber)
-                    : Text(
-                        name.substring(0, 1),
+                backgroundColor: AppColors.surfaceColor,
+                backgroundImage: avatar != null ? NetworkImage(avatar) : null,
+                child: avatar == null
+                    ? Text(
+                        name.isNotEmpty ? name[0].toUpperCase() : '?',
                         style: TextStyle(
                           color: AppColors.textPrimary,
                           fontWeight: FontWeight.bold,
                         ),
-                      ),
+                      )
+                    : null,
               ),
               const Gap(14),
               Expanded(
@@ -307,7 +303,7 @@ class _RequestCard extends StatelessWidget {
                     ),
                     const Gap(4),
                     Text(
-                      time,
+                      _formatTime(request.createdAt),
                       style: TextStyle(
                         color: AppColors.textSecondary,
                         fontSize: 12,
@@ -318,83 +314,85 @@ class _RequestCard extends StatelessWidget {
               ),
             ],
           ),
-          if (message != null) ...[
-            const Gap(12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceColor,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                '"$message"',
-                style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
-          ],
-          const Gap(16),
-          Row(
-            children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: onDecline,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceColor,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Center(
-                      child: Text(
-                        'Decline',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontWeight: FontWeight.w600,
+          if (isReceived) ...[
+            const Gap(16),
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: onDecline,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceColor,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Center(
+                        child: Text(
+                          'Elutasítás',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              const Gap(12),
-              Expanded(
-                flex: 2,
-                child: GestureDetector(
-                  onTap: onAccept,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: isVip ? Colors.amber : AppColors.success,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Center(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            isVip ? Icons.star_rounded : Icons.check_rounded,
-                            color: isVip ? Colors.black87 : Colors.white,
-                            size: 18,
-                          ),
-                          const Gap(8),
-                          Text(
-                            isVip ? 'Accept VIP' : 'Accept',
-                            style: TextStyle(
-                              color: isVip ? Colors.black87 : Colors.white,
-                              fontWeight: FontWeight.bold,
+                const Gap(12),
+                Expanded(
+                  flex: 2,
+                  child: GestureDetector(
+                    onTap: onAccept,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.success,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Center(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.check_rounded,
+                              color: Colors.white,
+                              size: 18,
                             ),
-                          ),
-                        ],
+                            Gap(8),
+                            Text(
+                              'Elfogadás',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
+              ],
+            ),
+          ] else ...[
+            const Gap(12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withAlpha(30),
+                borderRadius: BorderRadius.circular(8),
               ),
-            ],
-          ),
+              child: Text(
+                'Függőben...',
+                style: TextStyle(
+                  color: AppColors.warning,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

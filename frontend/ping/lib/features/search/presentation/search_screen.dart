@@ -1,64 +1,97 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:gap/gap.dart';
 import 'package:ping/core/theme/app_theme.dart';
 import 'package:ping/core/widgets/neumorphic_container.dart';
+import 'package:ping/features/user/domain/user_service.dart';
+import 'package:ping/features/friends/domain/friends_service.dart';
 
-/// Search Screen (Dark Mode).
-class SearchScreen extends StatefulWidget {
+/// Search Screen with API integration (Dark Mode).
+class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
 
   @override
-  State<SearchScreen> createState() => _SearchScreenState();
+  ConsumerState<SearchScreen> createState() => _SearchScreenState();
 }
 
-class _SearchScreenState extends State<SearchScreen> {
+class _SearchScreenState extends ConsumerState<SearchScreen> {
   final TextEditingController _controller = TextEditingController();
   bool _searching = false;
-  List<Map<String, dynamic>> _results = [];
+  List<UserSearchResult> _results = [];
+  String? _errorMessage;
 
-  final List<Map<String, dynamic>> _allUsers = [
-    {'name': 'Alice Johnson', 'username': '@alice_j', 'isFriend': false},
-    {'name': 'Bob Smith', 'username': '@bobsmith', 'isFriend': true},
-    {'name': 'Carol Williams', 'username': '@carol_w', 'isFriend': false},
-    {'name': 'David Brown', 'username': '@davidb', 'isFriend': false},
-    {'name': 'Eva Martinez', 'username': '@eva.m', 'isFriend': true},
-  ];
-
-  void _search(String q) {
-    if (q.isEmpty) {
+  Future<void> _search(String q) async {
+    if (q.isEmpty || q.length < 2) {
       setState(() {
         _results = [];
         _searching = false;
+        _errorMessage = null;
       });
       return;
     }
-    setState(() => _searching = true);
-    Future.delayed(const Duration(milliseconds: 300), () {
+
+    setState(() {
+      _searching = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final userService = ref.read(userServiceProvider);
+      final results = await userService.searchUsers(q);
+
       if (mounted) {
         setState(() {
-          _results = _allUsers.where((u) {
-            final name = u['name'].toString().toLowerCase();
-            final user = u['username'].toString().toLowerCase();
-            return name.contains(q.toLowerCase()) ||
-                user.contains(q.toLowerCase());
-          }).toList();
+          _results = results;
           _searching = false;
         });
       }
-    });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _searching = false;
+          _errorMessage = 'Keresés sikertelen';
+        });
+      }
+    }
   }
 
-  void _add(Map<String, dynamic> u) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Request sent to ${u['name']}!'),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: AppColors.cardColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-      ),
-    );
+  Future<void> _sendFriendRequest(UserSearchResult user) async {
+    try {
+      final friendsService = ref.read(friendsServiceProvider);
+      await friendsService.sendFriendRequest(user.id);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Barátkérelem elküldve: ${user.name}!'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: AppColors.success,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+
+        // Re-search to update UI
+        _search(_controller.text);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Hiba: $e'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: AppColors.emergency,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -110,7 +143,7 @@ class _SearchScreenState extends State<SearchScreen> {
                               onChanged: _search,
                               style: TextStyle(color: AppColors.textPrimary),
                               decoration: InputDecoration(
-                                hintText: 'Search users...',
+                                hintText: 'Felhasználók keresése...',
                                 hintStyle: TextStyle(
                                   color: AppColors.textSecondary,
                                 ),
@@ -151,32 +184,44 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_controller.text.isEmpty) {
       return _empty(
         Icons.search_rounded,
-        'Find Friends',
-        'Search by name or username.',
+        'Barátok keresése',
+        'Keresés név vagy felhasználónév alapján.',
       );
     }
-    if (_searching) {
-      return Center(child: CircularProgressIndicator(color: AppColors.accent));
+
+    if (_controller.text.length < 2) {
+      return _empty(
+        Icons.search_rounded,
+        'Írj legalább 2 karaktert',
+        'A kereséshez adj meg több karaktert.',
+      );
     }
+
+    if (_searching) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.accent),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return _empty(Icons.error_outline, 'Hiba', _errorMessage!);
+    }
+
     if (_results.isEmpty) {
       return _empty(
         Icons.person_search_outlined,
-        'No results',
-        'No users found.',
+        'Nincs találat',
+        'Nem található felhasználó.',
       );
     }
+
     return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: _results.length,
       separatorBuilder: (_, __) => const Gap(12),
       itemBuilder: (context, i) {
-        final u = _results[i];
-        return _UserCard(
-          name: u['name'],
-          username: u['username'],
-          isFriend: u['isFriend'],
-          onAdd: () => _add(u),
-        );
+        final user = _results[i];
+        return _UserCard(user: user, onAdd: () => _sendFriendRequest(user));
       },
     );
   }
@@ -208,17 +253,10 @@ class _SearchScreenState extends State<SearchScreen> {
 }
 
 class _UserCard extends StatelessWidget {
-  final String name;
-  final String username;
-  final bool isFriend;
+  final UserSearchResult user;
   final VoidCallback onAdd;
 
-  const _UserCard({
-    required this.name,
-    required this.username,
-    required this.isFriend,
-    required this.onAdd,
-  });
+  const _UserCard({required this.user, required this.onAdd});
 
   @override
   Widget build(BuildContext context) {
@@ -229,14 +267,19 @@ class _UserCard extends StatelessWidget {
           CircleAvatar(
             radius: 24,
             backgroundColor: AppColors.surfaceColor,
-            child: Text(
-              name.substring(0, 1),
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
-              ),
-            ),
+            backgroundImage: user.avatarUrl != null
+                ? NetworkImage(user.avatarUrl!)
+                : null,
+            child: user.avatarUrl == null
+                ? Text(
+                    user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  )
+                : null,
           ),
           const Gap(14),
           Expanded(
@@ -244,7 +287,7 @@ class _UserCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  name,
+                  user.name,
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
@@ -252,7 +295,7 @@ class _UserCard extends StatelessWidget {
                 ),
                 const Gap(4),
                 Text(
-                  username,
+                  '@${user.username}',
                   style: TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 14,
@@ -261,7 +304,7 @@ class _UserCard extends StatelessWidget {
               ],
             ),
           ),
-          if (isFriend)
+          if (user.isFriend)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
@@ -273,7 +316,7 @@ class _UserCard extends StatelessWidget {
                   Icon(Icons.check, color: AppColors.success, size: 16),
                   const Gap(6),
                   Text(
-                    'Friends',
+                    'Barát',
                     style: TextStyle(
                       color: AppColors.success,
                       fontWeight: FontWeight.w600,
@@ -281,6 +324,22 @@ class _UserCard extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            )
+          else if (user.isPending)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withAlpha(30),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                'Függőben',
+                style: TextStyle(
+                  color: AppColors.warning,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
               ),
             )
           else
@@ -295,12 +354,12 @@ class _UserCard extends StatelessWidget {
                   color: AppColors.accent,
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: Row(
-                  children: const [
+                child: const Row(
+                  children: [
                     Icon(Icons.person_add, color: Colors.white, size: 16),
                     Gap(6),
                     Text(
-                      'Add',
+                      'Hozzáadás',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
